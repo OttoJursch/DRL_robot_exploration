@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.append('DRL_robot_exploration')
 import tensorflow as tf
 from skimage.transform import resize
 import random
@@ -8,7 +10,6 @@ from collections import deque
 from tf_networks import create_CNN
 from tensorboardX import SummaryWriter
 
-sys.path.append('DRL_robot_exploration')
 import robot_simulation as robot
 
 # select mode

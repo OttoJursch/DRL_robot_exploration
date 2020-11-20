@@ -1,3 +1,5 @@
+import sys
+sys.path.append('DRL_robot_exploration')
 import os
 import tensorflow as tf
 from skimage.transform import resize
@@ -6,7 +8,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tf_networks import create_LSTM
 from tensorboardX import SummaryWriter
-sys.path.append('DRL_robot_exploration')
 import robot_simulation as robot
 
 # select mode
