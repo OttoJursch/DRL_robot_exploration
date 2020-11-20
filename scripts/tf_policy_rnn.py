@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tf_networks import create_LSTM
 from tensorboardX import SummaryWriter
+sys.path.append('DRL_robot_exploration')
 import robot_simulation as robot
 
 # select mode
@@ -77,15 +78,16 @@ def start():
     config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
     sess = tf.compat.v1.InteractiveSession(config=config)
-    s, readout, keep_rate, tl, bs, si, rnn_state = create_LSTM(ACTIONS, h_size, 'policy')
+    s, readout, keep_rate, tl, bs, si, rnn_state = create_LSTM(
+        ACTIONS, h_size, 'policy')
     s_target, readout_target, keep_rate_target, \
     tl_target, bs_target, si_target, rnn_state_target = create_LSTM(ACTIONS, h_size, 'target')
 
     # define the cost function
     a = tf.compat.v1.placeholder("float", [None, ACTIONS])
     y = tf.compat.v1.placeholder("float", [None])
-    readout_action = tf.compat.v1.reduce_sum(
-        tf.multiply(readout, a), reduction_indices=1)
+    readout_action = tf.compat.v1.reduce_sum(tf.multiply(readout, a),
+                                             reduction_indices=1)
     cost = tf.compat.v1.reduce_mean(tf.compat.v1.square(y - readout_action))
     train_step = tf.compat.v1.train.AdamOptimizer(1e-5).minimize(cost)
 
@@ -129,7 +131,13 @@ def start():
 
         # choose an action by uncertainty
         readout_t, state1 = sess.run([readout, rnn_state],
-                                     feed_dict={s: s_t, keep_rate: 1 - drop_rate, tl: 1, bs: 1, si: state})
+                                     feed_dict={
+                                         s: s_t,
+                                         keep_rate: 1 - drop_rate,
+                                         tl: 1,
+                                         bs: 1,
+                                         si: state
+                                     })
         readout_t = readout_t[0]
         readout_t[a_t_coll] = None
         a_t = np.zeros([ACTIONS])
@@ -137,14 +145,16 @@ def start():
         a_t[action_index] = 1
 
         # run the selected action and observe next state and reward
-        x_t1, r_t, terminal, complete, re_locate, collision_index, _ = robot_explo.step(action_index)
+        x_t1, r_t, terminal, complete, re_locate, collision_index, _ = robot_explo.step(
+            action_index)
         x_t1 = resize(x_t1, (84, 84))
         x_t1 = np.reshape(x_t1, (1, 84, 84, 1))
         s_t1 = x_t1
         finish = terminal
 
         # store the transition
-        episodeBuffer.append(np.reshape(np.array([s_t, a_t, r_t, s_t1, terminal]), [1, 5]))
+        episodeBuffer.append(
+            np.reshape(np.array([s_t, a_t, r_t, s_t1, terminal]), [1, 5]))
 
         if step_t > OBSERVE:
             # update target network
@@ -152,8 +162,8 @@ def start():
                 copy_weights(sess)
 
             # reset the recurrent layer's hidden state
-            state_train = (np.zeros([BATCH, h_size]),
-                           np.zeros([BATCH, h_size]))
+            state_train = (np.zeros([BATCH, h_size]), np.zeros([BATCH,
+                                                                h_size]))
 
             # sample a minibatch to train on
             trainBatch = myBuffer.sample(BATCH, trace_length)
@@ -164,25 +174,33 @@ def start():
             r_batch = np.vstack(trainBatch[:, 2]).flatten()
             s_j1_batch = np.vstack(trainBatch[:, 3])
 
-            readout_j1_batch = readout_target.eval(feed_dict={s_target: s_j1_batch, keep_rate_target: 1,
-                                                              tl_target: trace_length, bs_target: BATCH,
-                                                              si_target: state_train})[0]
+            readout_j1_batch = readout_target.eval(
+                feed_dict={
+                    s_target: s_j1_batch,
+                    keep_rate_target: 1,
+                    tl_target: trace_length,
+                    bs_target: BATCH,
+                    si_target: state_train
+                })[0]
             end_multiplier = -(np.vstack(trainBatch[:, 4]).flatten() - 1)
-            y_batch = r_batch + GAMMA * np.max(readout_j1_batch) * end_multiplier
+            y_batch = r_batch + GAMMA * np.max(
+                readout_j1_batch) * end_multiplier
 
             # perform gradient step
-            train_step.run(feed_dict={
-                y: y_batch,
-                a: a_batch,
-                s: s_j_batch,
-                keep_rate: 0.2,
-                tl: trace_length,
-                bs: BATCH,
-                si: state_train}
-            )
+            train_step.run(
+                feed_dict={
+                    y: y_batch,
+                    a: a_batch,
+                    s: s_j_batch,
+                    keep_rate: 0.2,
+                    tl: trace_length,
+                    bs: BATCH,
+                    si: state_train
+                })
 
             # update tensorboard
-            new_average_reward = np.average(total_reward[len(total_reward) - 10000:])
+            new_average_reward = np.average(total_reward[len(total_reward) -
+                                                         10000:])
             writer.add_scalar('average reward', new_average_reward, step_t)
 
         step_t += 1
@@ -192,8 +210,9 @@ def start():
         if step_t == 2e4 or step_t == 2e5 or step_t == 2e6:
             saver.save(sess, network_dir + '/rnn', global_step=step_t)
 
-        print("TIMESTEP", step_t, "/ DROPOUT", drop_rate, "/ ACTION", action_index, "/ REWARD", r_t,
-              "/ Q_MAX %e" % np.max(readout_t), "/ Terminal", finish, "\n")
+        print("TIMESTEP", step_t, "/ DROPOUT", drop_rate, "/ ACTION",
+              action_index, "/ REWARD", r_t, "/ Q_MAX %e" % np.max(readout_t),
+              "/ Terminal", finish, "\n")
 
         # reset the environment
         if finish:
@@ -219,7 +238,13 @@ def start():
     while not TRAIN and not finish_all_map:
         # choose an action by policy
         readout_t, state1 = sess.run([readout, rnn_state],
-                                     feed_dict={s: s_t, keep_rate: 1, tl: 1, bs: 1, si: state})
+                                     feed_dict={
+                                         s: s_t,
+                                         keep_rate: 1,
+                                         tl: 1,
+                                         bs: 1,
+                                         si: state
+                                     })
         readout_t = readout_t[0]
         readout_t[a_t_coll] = None
         a_t = np.zeros([ACTIONS])
@@ -227,14 +252,16 @@ def start():
         a_t[action_index] = 1
 
         # run the selected action and observe next state and reward
-        x_t1, r_t, terminal, complete, re_locate, collision_index, finish_all_map = robot_explo.step(action_index)
+        x_t1, r_t, terminal, complete, re_locate, collision_index, finish_all_map = robot_explo.step(
+            action_index)
         x_t1 = resize(x_t1, (84, 84))
         x_t1 = np.reshape(x_t1, (1, 84, 84, 1))
         s_t1 = x_t1
         finish = terminal
 
         step_t += 1
-        print("TIMESTEP", step_t, "/ ACTION", action_index, "/ REWARD", r_t, "/ Terminal", finish, "\n")
+        print("TIMESTEP", step_t, "/ ACTION", action_index, "/ REWARD", r_t,
+              "/ Terminal", finish, "\n")
 
         if finish:
             a_t_coll = []

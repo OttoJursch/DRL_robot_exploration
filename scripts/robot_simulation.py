@@ -7,7 +7,7 @@ import sys
 from scipy import ndimage
 import matplotlib.pyplot as plt
 
-sys.path.append(sys.path[0] + '/..')
+sys.path.append('DRL_robot_exploration')
 from build.inverse_sensor_model import *
 from build.astar import *
 from random import shuffle
@@ -27,7 +27,8 @@ class Robot:
         if self.mode:
             shuffle(self.map_list)
         self.li_map = index_map
-        self.global_map, self.robot_position = self.map_setup(self.map_dir + '/' + self.map_list[self.li_map])
+        self.global_map, self.robot_position = self.map_setup(
+            self.map_dir + '/' + self.map_list[self.li_map])
         self.op_map = np.ones(self.global_map.shape) * 127
         self.map_size = np.shape(self.global_map)
         self.finish_percent = 0.985
@@ -36,9 +37,11 @@ class Robot:
         self.old_position = np.zeros([2])
         self.old_op_map = np.empty([0])
         current_dir = os.path.dirname(os.path.realpath(__file__))
-        self.action_space = np.genfromtxt(current_dir + '/action_points.csv', delimiter=",")
+        self.action_space = np.genfromtxt(current_dir + '/action_points.csv',
+                                          delimiter=",")
         self.t = self.map_points(self.global_map)
-        self.free_tree = spatial.KDTree(self.free_points(self.global_map).tolist())
+        self.free_tree = spatial.KDTree(
+            self.free_points(self.global_map).tolist())
         self.robot_size = 6
         self.local_size = 40
         if self.plot:
@@ -48,9 +51,14 @@ class Robot:
             self.y2frontier = np.empty([0])
 
     def begin(self):
-        self.op_map = self.inverse_sensor(self.robot_position, self.sensor_range, self.op_map, self.global_map)
-        step_map = self.robot_model(self.robot_position, self.robot_size, self.t, self.op_map)
-        map_local = self.local_map(self.robot_position, step_map, self.map_size, self.sensor_range + self.local_size)
+        self.op_map = self.inverse_sensor(self.robot_position,
+                                          self.sensor_range, self.op_map,
+                                          self.global_map)
+        step_map = self.robot_model(self.robot_position, self.robot_size,
+                                    self.t, self.op_map)
+        map_local = self.local_map(self.robot_position, step_map,
+                                   self.map_size,
+                                   self.sensor_range + self.local_size)
         if self.plot:
             self.plot_env()
         return map_local
@@ -67,18 +75,28 @@ class Robot:
         self.take_action(action_index, self.robot_position)
 
         # collision check
-        collision_points, collision_index = self.collision_check(self.old_position, self.robot_position, self.map_size,
-                                                                 self.global_map)
+        collision_points, collision_index = self.collision_check(
+            self.old_position, self.robot_position, self.map_size,
+            self.global_map)
 
         if collision_index:
-            self.robot_position = self.nearest_free(self.free_tree, collision_points)
-            self.op_map = self.inverse_sensor(self.robot_position, self.sensor_range, self.op_map, self.global_map)
-            step_map = self.robot_model(self.robot_position, self.robot_size, self.t, self.op_map)
+            self.robot_position = self.nearest_free(self.free_tree,
+                                                    collision_points)
+            self.op_map = self.inverse_sensor(self.robot_position,
+                                              self.sensor_range, self.op_map,
+                                              self.global_map)
+            step_map = self.robot_model(self.robot_position, self.robot_size,
+                                        self.t, self.op_map)
         else:
-            self.op_map = self.inverse_sensor(self.robot_position, self.sensor_range, self.op_map, self.global_map)
-            step_map = self.robot_model(self.robot_position, self.robot_size, self.t, self.op_map)
+            self.op_map = self.inverse_sensor(self.robot_position,
+                                              self.sensor_range, self.op_map,
+                                              self.global_map)
+            step_map = self.robot_model(self.robot_position, self.robot_size,
+                                        self.t, self.op_map)
 
-        map_local = self.local_map(self.robot_position, step_map, self.map_size, self.sensor_range + self.local_size)
+        map_local = self.local_map(self.robot_position, step_map,
+                                   self.map_size,
+                                   self.sensor_range + self.local_size)
         reward = self.get_reward(self.old_op_map, self.op_map, collision_index)
 
         if reward <= 0.02 and not collision_index:
@@ -102,8 +120,8 @@ class Robot:
             self.robot_position = self.old_position.copy()
             self.op_map = self.old_op_map.copy()
             if self.plot and self.mode:
-                self.xPoint[self.xPoint.size-1] = ma.masked
-                self.yPoint[self.yPoint.size-1] = ma.masked
+                self.xPoint[self.xPoint.size - 1] = ma.masked
+                self.yPoint[self.yPoint.size - 1] = ma.masked
         else:
             if self.plot:
                 self.xPoint = ma.append(self.xPoint, self.robot_position[0])
@@ -111,7 +129,8 @@ class Robot:
                 self.plot_env()
 
         # check if exploration is finished
-        if np.size(np.where(self.op_map == 255))/np.size(np.where(self.global_map == 255)) > self.finish_percent:
+        if np.size(np.where(self.op_map == 255)) / np.size(
+                np.where(self.global_map == 255)) > self.finish_percent:
             self.li_map += 1
             if self.li_map == self.map_number:
                 self.li_map = 0
@@ -128,12 +147,18 @@ class Robot:
         all_map = False
         pre_position = self.robot_position.copy()
         self.robot_position = self.frontier(self.op_map, self.map_size, self.t)
-        self.op_map = self.inverse_sensor(self.robot_position, self.sensor_range, self.op_map, self.global_map)
-        step_map = self.robot_model(self.robot_position, self.robot_size, self.t, self.op_map)
-        map_local = self.local_map(self.robot_position, step_map, self.map_size, self.sensor_range + self.local_size)
+        self.op_map = self.inverse_sensor(self.robot_position,
+                                          self.sensor_range, self.op_map,
+                                          self.global_map)
+        step_map = self.robot_model(self.robot_position, self.robot_size,
+                                    self.t, self.op_map)
+        map_local = self.local_map(self.robot_position, step_map,
+                                   self.map_size,
+                                   self.sensor_range + self.local_size)
 
         if self.plot:
-            path = self.astar_path(self.op_map, pre_position.tolist(), self.robot_position.tolist())
+            path = self.astar_path(self.op_map, pre_position.tolist(),
+                                   self.robot_position.tolist())
             self.x2frontier = ma.append(self.x2frontier, ma.masked)
             self.y2frontier = ma.append(self.y2frontier, ma.masked)
             self.x2frontier = ma.append(self.x2frontier, path[1, :])
@@ -144,7 +169,8 @@ class Robot:
             self.yPoint = ma.append(self.yPoint, self.robot_position[1])
             self.plot_env()
 
-        if np.size(np.where(self.op_map == 255))/np.size(np.where(self.global_map == 255)) > self.finish_percent:
+        if np.size(np.where(self.op_map == 255)) / np.size(
+                np.where(self.global_map == 255)) > self.finish_percent:
             self.li_map += 1
             if self.li_map == self.map_number:
                 self.li_map = 0
@@ -163,7 +189,10 @@ class Robot:
     def map_setup(self, location):
         global_map = (io.imread(location, 1) * 255).astype(int)
         robot_location = np.nonzero(global_map == 208)
-        robot_location = np.array([np.array(robot_location)[1, 127], np.array(robot_location)[0, 127]])
+        robot_location = np.array([
+            np.array(robot_location)[1, 127],
+            np.array(robot_location)[0, 127]
+        ])
         global_map = (global_map > 150)
         global_map = global_map * 254 + 1
         return global_map, robot_location
@@ -206,7 +235,9 @@ class Robot:
 
     def get_reward(self, old_op_map, op_map, coll_index):
         if not coll_index:
-            reward = float(np.size(np.where(op_map == 255)) - np.size(np.where(old_op_map == 255))) / 14000
+            reward = float(
+                np.size(np.where(op_map == 255)) -
+                np.size(np.where(old_op_map == 255))) / 14000
             if reward > 1:
                 reward = 1
         else:
@@ -231,10 +262,10 @@ class Robot:
 
     def range_search(self, position, r, points):
         nvar = position.shape[0]
-        r2 = r ** 2
+        r2 = r**2
         s = 0
         for d in range(0, nvar):
-            s += (points[:, d] - position[d]) ** 2
+            s += (points[:, d] - position[d])**2
         idx = np.nonzero(s <= r2)
         idx = np.asarray(idx).ravel()
         inrange_points = points[idx, :]
@@ -277,7 +308,8 @@ class Robot:
         return coll_points, coll_index
 
     def inverse_sensor(self, robot_position, sensor_range, op_map, map_glo):
-        op_map = inverse_sensor_model(robot_position[0], robot_position[1], sensor_range, op_map, map_glo)
+        op_map = inverse_sensor_model(robot_position[0], robot_position[1],
+                                      sensor_range, op_map, map_glo)
         return op_map
 
     def frontier(self, op_map, map_size, points):
@@ -286,7 +318,9 @@ class Robot:
         mapping = op_map.copy()
         # 0-1 unknown area map
         mapping = (mapping == 127) * 1
-        mapping = np.lib.pad(mapping, ((1, 1), (1, 1)), 'constant', constant_values=0)
+        mapping = np.lib.pad(mapping, ((1, 1), (1, 1)),
+                             'constant',
+                             constant_values=0)
         fro_map = mapping[2:][:, 1:x_len + 1] + mapping[:y_len][:, 1:x_len + 1] + mapping[1:y_len + 1][:, 2:] + \
                   mapping[1:y_len + 1][:, :x_len] + mapping[:y_len][:, 2:] + mapping[2:][:, :x_len] + mapping[2:][:,
                                                                                                       2:] + \
@@ -303,7 +337,8 @@ class Robot:
     def unique_rows(self, a):
         a = np.ascontiguousarray(a)
         unique_a = np.unique(a.view([('', a.dtype)] * a.shape[1]))
-        result = unique_a.view(a.dtype).reshape((unique_a.shape[0], a.shape[1]))
+        result = unique_a.view(a.dtype).reshape(
+            (unique_a.shape[0], a.shape[1]))
         result = result[~np.isnan(result).any(axis=1)]
         return result
 
@@ -313,15 +348,15 @@ class Robot:
         temp_weight = (weights < 150) * 254 + 1
         # For the heuristic to be valid, each move must cost at least 1.
         if temp_weight.min(axis=None) < 1.:
-            raise ValueError("Minimum cost to move must be 1, but got %f" % (
-                temp_weight.min(axis=None)))
+            raise ValueError("Minimum cost to move must be 1, but got %f" %
+                             (temp_weight.min(axis=None)))
         # Ensure start is within bounds.
-        if (temp_start[0] < 0 or temp_start[0] >= temp_weight.shape[0] or
-                temp_start[1] < 0 or temp_start[1] >= temp_weight.shape[1]):
+        if (temp_start[0] < 0 or temp_start[0] >= temp_weight.shape[0]
+                or temp_start[1] < 0 or temp_start[1] >= temp_weight.shape[1]):
             raise ValueError("Start lies outside grid.")
         # Ensure goal is within bounds.
-        if (temp_goal[0] < 0 or temp_goal[0] >= temp_weight.shape[0] or
-                temp_goal[1] < 0 or temp_goal[1] >= temp_weight.shape[1]):
+        if (temp_goal[0] < 0 or temp_goal[0] >= temp_weight.shape[0]
+                or temp_goal[1] < 0 or temp_goal[1] >= temp_weight.shape[1]):
             raise ValueError("Goal of lies outside grid.")
 
         height, width = temp_weight.shape
@@ -329,7 +364,12 @@ class Robot:
         goal_idx = np.ravel_multi_index(temp_goal, (height, width))
 
         path = astar(
-            temp_weight.flatten(), height, width, start_idx, goal_idx, allow_diagonal,
+            temp_weight.flatten(),
+            height,
+            width,
+            start_idx,
+            goal_idx,
+            allow_diagonal,
         )
         return path
 
@@ -339,6 +379,9 @@ class Robot:
         plt.axis((0, self.map_size[1], self.map_size[0], 0))
         plt.plot(self.xPoint, self.yPoint, 'b', linewidth=2)
         plt.plot(self.x2frontier, self.y2frontier, 'r', linewidth=2)
-        plt.plot(self.robot_position[0], self.robot_position[1], 'mo', markersize=8)
+        plt.plot(self.robot_position[0],
+                 self.robot_position[1],
+                 'mo',
+                 markersize=8)
         plt.plot(self.xPoint[0], self.yPoint[0], 'co', markersize=8)
         plt.pause(0.05)

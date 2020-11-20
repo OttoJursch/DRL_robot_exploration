@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from collections import deque
 from tf_networks import create_CNN
 from tensorboardX import SummaryWriter
+
+sys.path.append('DRL_robot_exploration')
 import robot_simulation as robot
 
 # select mode
@@ -32,11 +34,9 @@ if TRAIN:
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
-
-def copy_weights(sess):
     trainable = tf.compat.v1.trainable_variables()
-    for i in range(len(trainable)//2):
-        assign_op = trainable[i+len(trainable)//2].assign(trainable[i])
+    for i in range(len(trainable) // 2):
+        assign_op = trainable[i + len(trainable) // 2].assign(trainable[i])
         sess.run(assign_op)
 
 
@@ -50,8 +50,8 @@ def start():
     # define the cost function
     a = tf.compat.v1.placeholder("float", [None, ACTIONS])
     y = tf.compat.v1.placeholder("float", [None])
-    readout_action = tf.compat.v1.reduce_sum(
-        tf.multiply(readout, a), reduction_indices=1)
+    readout_action = tf.compat.v1.reduce_sum(tf.multiply(readout, a),
+                                             reduction_indices=1)
     cost = tf.compat.v1.reduce_mean(tf.square(y - readout_action))
     train_step = tf.compat.v1.train.AdamOptimizer(1e-5).minimize(cost)
 
@@ -93,14 +93,18 @@ def start():
             drop_rate -= (INITIAL_RATE - FINAL_RATE) / EXPLORE
 
         # choose an action by uncertainty
-        readout_t = readout.eval(feed_dict={s: s_t, keep_rate: 1-drop_rate})[0]
+        readout_t = readout.eval(feed_dict={
+            s: s_t,
+            keep_rate: 1 - drop_rate
+        })[0]
         readout_t[a_t_coll] = None
         a_t = np.zeros([ACTIONS])
         action_index = np.nanargmax(readout_t)
         a_t[action_index] = 1
 
         # run the selected action and observe next state and reward
-        x_t1, r_t, terminal, complete, re_locate, collision_index, _ = robot_explo.step(action_index)
+        x_t1, r_t, terminal, complete, re_locate, collision_index, _ = robot_explo.step(
+            action_index)
         x_t1 = resize(x_t1, (84, 84))
         x_t1 = np.reshape(x_t1, (1, 84, 84, 1))
         s_t1 = x_t1
@@ -125,20 +129,25 @@ def start():
             r_batch = np.vstack(minibatch[:, 2]).flatten()
             s_j1_batch = np.vstack(minibatch[:, 3])
 
-            readout_j1_batch = readout_target.eval(feed_dict={s_target: s_j1_batch, keep_rate_target: 1})
+            readout_j1_batch = readout_target.eval(feed_dict={
+                s_target: s_j1_batch,
+                keep_rate_target: 1
+            })
             end_multiplier = -(np.vstack(minibatch[:, 4]).flatten() - 1)
-            y_batch = r_batch + GAMMA * np.max(readout_j1_batch) * end_multiplier
+            y_batch = r_batch + GAMMA * np.max(
+                readout_j1_batch) * end_multiplier
 
             # perform gradient step
             train_step.run(feed_dict={
                 y: y_batch,
                 a: a_batch,
                 s: s_j_batch,
-                keep_rate: 0.2}
-            )
+                keep_rate: 0.2
+            })
 
             # update tensorboard
-            new_average_reward = np.average(total_reward[len(total_reward) - 10000:])
+            new_average_reward = np.average(total_reward[len(total_reward) -
+                                                         10000:])
             writer.add_scalar('average reward', new_average_reward, step_t)
 
         step_t += 1
@@ -148,7 +157,8 @@ def start():
         if step_t == 2e4 or step_t == 2e5 or step_t == 2e6:
             saver.save(sess, network_dir + '/cnn', global_step=step_t)
 
-        print("TIMESTEP", step_t, "/ DROPOUT", drop_rate, "/ ACTION", action_index, "/ REWARD", r_t, "/ Terminal", finish, "\n")
+        print("TIMESTEP", step_t, "/ DROPOUT", drop_rate, "/ ACTION",
+              action_index, "/ REWARD", r_t, "/ Terminal", finish, "\n")
 
         # reset the environment
         if finish:
@@ -174,7 +184,8 @@ def start():
         a_t[action_index] = 1
 
         # run the selected action and observe next state and reward
-        x_t1, r_t, terminal, complete, re_locate, collision_index, finish_all_map = robot_explo.step(action_index)
+        x_t1, r_t, terminal, complete, re_locate, collision_index, finish_all_map = robot_explo.step(
+            action_index)
         x_t1 = resize(x_t1, (84, 84))
         x_t1 = np.reshape(x_t1, (1, 84, 84, 1))
         s_t1 = x_t1
