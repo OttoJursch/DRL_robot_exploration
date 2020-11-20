@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from .tf_networks import create_LSTM
 from tensorboardX import SummaryWriter
-import robot_simulation as robot
+import DRL_robot_exploration.scripts.robot_simulation as robot
 
 # select mode
 TRAIN = False
