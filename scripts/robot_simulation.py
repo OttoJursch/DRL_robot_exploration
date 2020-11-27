@@ -145,12 +145,13 @@ class Robot:
                  do_rescue,
                  shuffle=True):
         self.mode = train
+        self.action_space = action_space
         self.plot = plot
         self.root_dir = root_dir
         self.index_map = index_map
-        self.reset(index_map, shuffle)
         self.do_rescue = do_rescue
         self.reward_function = reward_function
+        self.reset(index_map, shuffle)
 
     def reset(self, index_map=None, do_shuffle=True):
         if self.mode:
