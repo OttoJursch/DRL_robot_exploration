@@ -77,7 +77,7 @@ class FrontierRewardFunction:
         return points
 
     def get_reward(self, robot_pos, old_op_map, op_map, coll_index):
-        paper_reward = self.paper_reward.get_reward(old_op_map, op_map,
+        paper_reward = self.paper_reward.get_reward(robot_pos, old_op_map, op_map,
                                                     coll_index)
 
         #If there was a collision return the collision reward
@@ -236,8 +236,9 @@ class Robot:
         map_local = self.local_map(self.robot_position, step_map,
                                    self.map_size,
                                    self.sensor_range + self.local_size)
-        reward = self.reward_function.get_reward(self.robot_position, self.old_op_map,
-                                      self.op_map, collision_index)
+        reward = self.reward_function.get_reward(self.robot_position,
+                                                 self.old_op_map, self.op_map,
+                                                 collision_index)
 
         if reward <= 0.02 and not collision_index:
             reward = -0.8
