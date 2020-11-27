@@ -109,8 +109,9 @@ class PolarActionSpace:
         dy = dist * np.sin(angle)
 
         pos = deepcopy(robot_position)
-        pos[0] = np.round(pos[0] + dx)
-        pos[1] = np.round(pos[1] + dy)
+        print(pos.shape)
+        pos[0] = np.round(pos[0] + dx)[0]
+        pos[1] = np.round(pos[1] + dy)[1]
 
         return pos
 
@@ -323,7 +324,8 @@ class Robot:
         return map_local, complete, all_map
 
     def take_action(self, action_index, robot_position):
-        move_action = self.action_space.get_action(action_index, robot_position)
+        move_action = self.action_space.get_action(action_index,
+                                                   robot_position)
         robot_position[0] = np.round(robot_position[0] + move_action[0])
         robot_position[1] = np.round(robot_position[1] + move_action[1])
 
