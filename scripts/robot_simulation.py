@@ -152,14 +152,14 @@ class Robot:
         self.do_rescue = do_rescue
         self.reward_function = reward_function
 
-    def reset(self, index_map=None, shuffle=True):
+    def reset(self, index_map=None, do_shuffle=True):
         if self.mode:
             self.map_dir = os.path.join(self.root_dir, 'train')
         else:
             self.map_dir = os.path.join(self.root_dir, 'test')
         self.map_list = os.listdir(self.map_dir)
         self.map_number = np.size(self.map_list)
-        if self.mode:
+        if self.mode and do_shuffle:
             shuffle(self.map_list)
         if index_map is None:
             index_map = random.choice(range(len(self.map_list)))
@@ -185,6 +185,8 @@ class Robot:
             self.x2frontier = np.empty([0])
             self.y2frontier = np.empty([0])
 
+        return self.begin(), self.robot_position
+
     def begin(self):
         self.op_map = self.inverse_sensor(self.robot_position,
                                           self.sensor_range, self.op_map,
@@ -196,7 +198,7 @@ class Robot:
                                    self.sensor_range + self.local_size)
         if self.plot:
             self.plot_env()
-        return map_local
+        return self.op_map
 
     def step(self, action_index):
         terminal = False
@@ -276,7 +278,9 @@ class Robot:
             new_location = False
             terminal = True
 
-        return map_local, reward, terminal, complete, new_location, collision_index, all_map
+        return (
+            self.op_map, self.robot_position
+        ), reward, terminal, complete, new_location, collision_index, all_map
 
     def rescuer(self):
         complete = False
