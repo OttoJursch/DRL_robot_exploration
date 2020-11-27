@@ -5,6 +5,7 @@ import numpy.ma as ma
 import time
 import sys
 from scipy import ndimage
+from copy import deepcopy
 import matplotlib.pyplot as plt
 
 sys.path.append('DRL_robot_exploration')
@@ -12,20 +13,156 @@ from build.inverse_sensor_model import *
 from build.astar import *
 from random import shuffle
 import os
+import random
+
+
+class PaperRewardFunction:
+    '''
+    Reward function from the paper
+    '''
+    def __init__(self):
+        pass
+
+    def get_reward(self, robot_position, old_op_map, op_map, coll_index):
+        '''
+        Takes in map before step and map after step. Measures effect of sensor
+        input from last step
+        '''
+        if not coll_index:
+            reward = float(
+                np.size(np.where(op_map == 255)) -
+                np.size(np.where(old_op_map == 255))) / 14000
+            if reward > 1:
+                reward = 1
+        else:
+            reward = -1
+        return reward
+
+
+class FrontierRewardFunction:
+    def __init__(self, reward_scale):
+        self.reward_scale = reward_scale
+        self.paper_reward = PaperRewardFunction()
+
+    def frontiers(self, op_map, map_size, points):
+        y_len = map_size[0]
+        x_len = map_size[1]
+        mapping = op_map.copy()
+        # 0-1 unknown area map
+        mapping = (mapping == 127) * 1
+        mapping = np.lib.pad(mapping, ((1, 1), (1, 1)),
+                             'constant',
+                             constant_values=0)
+        fro_map = mapping[2:][:, 1:x_len + 1] + mapping[:y_len][:, 1:x_len + 1] + mapping[1:y_len + 1][:, 2:] + \
+                  mapping[1:y_len + 1][:, :x_len] + mapping[:y_len][:, 2:] + mapping[2:][:, :x_len] + mapping[2:][:,
+                                                                                                      2:] + \
+                  mapping[:y_len][:, :x_len]
+
+        ind_free = np.where(op_map.ravel(order='F') == 255)[0]
+        ind_fron_1 = np.where(1 < fro_map.ravel(order='F'))[0]
+        ind_fron_2 = np.where(fro_map.ravel(order='F') < 8)[0]
+        ind_fron = np.intersect1d(ind_fron_1, ind_fron_2)
+        ind_to = np.intersect1d(ind_free, ind_fron)
+        f = points[ind_to]
+        f = f.astype(int)
+        return f
+
+    def map_points(self, map_glo):
+        map_x = map_glo.shape[1]
+        map_y = map_glo.shape[0]
+        x = np.linspace(0, map_x - 1, map_x)
+        y = np.linspace(0, map_y - 1, map_y)
+        t1, t2 = np.meshgrid(x, y)
+        points = np.vstack([t1.T.ravel(), t2.T.ravel()]).T
+        return points
+
+    def get_reward(self, robot_pos, old_op_map, op_map, coll_index):
+        paper_reward = self.paper_reward.get_reward(old_op_map, op_map,
+                                                    coll_index)
+
+        #If there was a collision return the collision reward
+        if coll_index:
+            return paper_reward
+
+        frontiers = np.array(
+            self.frontiers(op_map, op_map.shape, self.map_points(op_map)))
+
+        min_frontier_dist = -np.min(np.linalg.norm(robot_pos - frontiers))
+
+        return self.reward_scale * min_frontier_dist + paper_reward
+
+
+class PolarActionSpace:
+    '''
+    Action space is polar representation of vector robot should take from its
+    current position
+
+    This class will take that and add it to the current robot position to get 
+    '''
+    def __init__(self, max_travel):
+        self.max_distance = max_travel
+
+    def get_action(self, action_polar_coords, robot_position):
+        angle = action_polar_coords * (2 * np.pi)
+        dist = action_polar_coords * self.max_distance
+        dx = dist * np.cos(angle)
+        dy = dist * np.sin(angle)
+
+        pos = deepcopy(robot_position)
+        pos[0] = np.round(pos[0] + dx)
+        pos[1] = np.round(pos[1] + dy)
+
+        return pos
+
+
+class PaperActionSpace:
+    '''
+    Action space defined in the paper
+    Code refactored from the original
+    '''
+    def __init__(self, file):
+        self.file = file
+        self.action_space = np.genfromtxt(current_dir + '/action_points.csv',
+                                          delimiter=",")
+
+    def get_action(self, action_idx, robot_position):
+        move_action = self.action_space[action_idx, :]
+        new_pos = deepcopy(robot_position)
+        new_pos[0] = np.round(robot_position[0] + move_action[0])
+        new_pos[1] = np.round(robot_position[1] + move_action[1])
+
+        return new_pos
 
 
 class Robot:
-    def __init__(self, index_map, train, plot):
+    def __init__(self,
+                 index_map,
+                 train,
+                 plot,
+                 root_dir,
+                 action_space,
+                 reward_function,
+                 do_rescue,
+                 shuffle=True):
         self.mode = train
         self.plot = plot
+        self.root_dir = root_dir
+        self.index_map = index_map
+        self.reset(index_map, shuffle)
+        self.do_rescue = do_rescue
+        self.reward_function = reward_function
+
+    def reset(self, index_map=None, shuffle=True):
         if self.mode:
-            self.map_dir = '../DungeonMaps/train'
+            self.map_dir = os.path.join(self.root_dir, 'train')
         else:
-            self.map_dir = '../DungeonMaps/test'
+            self.map_dir = os.path.join(self.root_dir, 'test')
         self.map_list = os.listdir(self.map_dir)
         self.map_number = np.size(self.map_list)
         if self.mode:
             shuffle(self.map_list)
+        if index_map is None:
+            index_map = random.choice(range(len(self.map_list)))
         self.li_map = index_map
         self.global_map, self.robot_position = self.map_setup(
             self.map_dir + '/' + self.map_list[self.li_map])
@@ -37,8 +174,6 @@ class Robot:
         self.old_position = np.zeros([2])
         self.old_op_map = np.empty([0])
         current_dir = os.path.dirname(os.path.realpath(__file__))
-        self.action_space = np.genfromtxt(current_dir + '/action_points.csv',
-                                          delimiter=",")
         self.t = self.map_points(self.global_map)
         self.free_tree = spatial.KDTree(
             self.free_points(self.global_map).tolist())
@@ -97,7 +232,8 @@ class Robot:
         map_local = self.local_map(self.robot_position, step_map,
                                    self.map_size,
                                    self.sensor_range + self.local_size)
-        reward = self.get_reward(self.old_op_map, self.op_map, collision_index)
+        reward = self.reward_function(self.robot_position, self.old_op_map,
+                                      self.op_map, collision_index)
 
         if reward <= 0.02 and not collision_index:
             reward = -0.8
@@ -182,7 +318,7 @@ class Robot:
         return map_local, complete, all_map
 
     def take_action(self, action_index, robot_position):
-        move_action = self.action_space[action_index, :]
+        move_action = self.action_space(action_index, robot_position)
         robot_position[0] = np.round(robot_position[0] + move_action[0])
         robot_position[1] = np.round(robot_position[1] + move_action[1])
 
@@ -232,17 +368,6 @@ class Robot:
         index = np.where(op_map == 255)
         free = np.asarray([index[1], index[0]]).T
         return free
-
-    def get_reward(self, old_op_map, op_map, coll_index):
-        if not coll_index:
-            reward = float(
-                np.size(np.where(op_map == 255)) -
-                np.size(np.where(old_op_map == 255))) / 14000
-            if reward > 1:
-                reward = 1
-        else:
-            reward = -1
-        return reward
 
     def nearest_free(self, tree, point):
         pts = np.atleast_2d(point)
