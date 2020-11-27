@@ -145,6 +145,7 @@ class Robot:
                  do_rescue,
                  shuffle=True):
         self.mode = train
+        print(action_space)
         self.action_space = action_space
         self.plot = plot
         self.root_dir = root_dir
