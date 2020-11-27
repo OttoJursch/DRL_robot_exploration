@@ -145,7 +145,6 @@ class Robot:
                  do_rescue,
                  shuffle=True):
         self.mode = train
-        print(action_space)
         self.action_space = action_space
         self.plot = plot
         self.root_dir = root_dir
@@ -324,7 +323,7 @@ class Robot:
         return map_local, complete, all_map
 
     def take_action(self, action_index, robot_position):
-        move_action = self.action_space(action_index, robot_position)
+        move_action = self.action_space.get_action(action_index, robot_position)
         robot_position[0] = np.round(robot_position[0] + move_action[0])
         robot_position[1] = np.round(robot_position[1] + move_action[1])
 
