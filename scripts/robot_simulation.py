@@ -8,7 +8,7 @@ from scipy import ndimage
 from copy import deepcopy
 import matplotlib.pyplot as plt
 
-sys.path.append('DRL_robot_exploration')
+sys.path.append('DRL_robot_exploration/build')
 from build.inverse_sensor_model import *
 from build.astar import *
 from random import shuffle
