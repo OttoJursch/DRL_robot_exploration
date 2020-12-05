@@ -1,12 +1,13 @@
 from copy import deepcopy
 from scipy import spatial
 from skimage import io
+from skimage.transform import resize
 from scipy import ndimage
-from copy import deepcopy
 from random import shuffle
 import numpy as np
 import numpy.ma as ma
 import time
+import copy
 import sys
 import os
 import random
@@ -100,8 +101,6 @@ class FrontierRewardFunction:
             self.frontiers(op_map, op_map.shape, self.map_points(op_map)))
 
         min_frontier_dist = -np.min(np.linalg.norm(robot_pos - frontiers, axis=1))
-        print('min_frontier_dist', min_frontier_dist)
-        print('paper reward', paper_reward)
         return self.reward_scale * min_frontier_dist + paper_reward
 
 
@@ -122,6 +121,7 @@ class PolarActionSpace:
         dy = dist * np.cos(angle)
 
         return np.array([dx, dy])
+
 
 
 class Robot:
@@ -157,6 +157,7 @@ class Robot:
         self.li_map = index_map
         self.global_map, self.robot_position = self.map_setup(
             self.map_dir + '/' + self.map_list[self.li_map])
+        print('robot after map load', self.robot_position)
         self.op_map = np.ones(self.global_map.shape) * 127
         self.map_size = np.shape(self.global_map)
         self.finish_percent = 0.985
@@ -175,6 +176,8 @@ class Robot:
             self.yPoint = np.array([self.robot_position[1]])
             self.x2frontier = np.empty([0])
             self.y2frontier = np.empty([0])
+
+        print('robot pos returned', self.robot_position)
 
         return self.begin(), self.robot_position
 
@@ -232,7 +235,7 @@ class Robot:
         if reward <= 0.02 and not collision_index:
             reward = -0.8
             new_location = True
-            terminal = True
+            #terminal = True
 
         # during training, the robot is relocated if it has a collision
         # during testing, the robot will use collision check to avoid the collision
@@ -316,6 +319,8 @@ class Robot:
     def take_action(self, action_index, robot_position):
         move_action = self.action_space.get_action(action_index,
                                                    robot_position)
+        print('move action', move_action)
+        print('robot position', robot_position)
         robot_position[0] = np.round(robot_position[0] + move_action[0])
         robot_position[1] = np.round(robot_position[1] + move_action[1])
 
@@ -498,6 +503,7 @@ class Robot:
         return path
 
     def plot_env(self):
+        print('plotting?')
         plt.cla()
         plt.imshow(self.op_map, cmap='gray')
         plt.axis((0, self.map_size[1], self.map_size[0], 0))
@@ -532,7 +538,7 @@ def get_output_shape(model, image_dim):
 class RNNActor(nn.Module):
   #TODO Determine if the action space allows negative numbers
   #Potentially replace tanh with sigmoid
-  def __init__(self, conv_dims, lstm_hidden, train_length, input_size=(1, 1,224,224), act=nn.ReLU, final_act=nn.Sigmoid):
+  def __init__(self, conv_dims, lstm_hidden, train_length, input_size=(1, 1,84,84), act=nn.ReLU, final_act=nn.Sigmoid):
     super(RNNActor, self).__init__()
 
     self.conv_mod = build_conv_feature_extractor(conv_dims, act)
@@ -551,24 +557,33 @@ class RNNActor(nn.Module):
     self.train_length = train_length
     self.final_act = final_act()
 
-  def forward(self, image, positions, hidden_state, lengths):
+  def forward(self, image, positions, lengths, hidden_state=None):
+    print('sizes')
+    print(image.size())
+    print(positions.size())
     batch_size = image.size()[1]
-    conv = self.conv_mod(torch.reshape(image, (self.train_length * batch_size, 1, 224, 224)))
+    seq_length = image.size()[0]
+    conv = self.conv_mod(image.view((seq_length * batch_size, 1, 84, 84)))
     print('COnv out', conv.size())
 
-    flat = conv.view(-1).view(self.train_length, batch_size, self.lstm_input - 2)
-    print("Flattened COnv Feats", flat.size())
+    flat = conv.view(-1).view(seq_length, batch_size, self.lstm_input - 2)
+    print('sizes')
+    print(flat.size())
+    print(positions.size())
     state = torch.cat((flat, positions), 2)
-    print('Conv Feats w/ Position Size', state.size())
-    packed = torch.nn.utils.rnn.pack_padded_sequence(state, lengths)
-    states, final_state = self.lstm(packed, hidden_state)
-    print('pre unpacking')
-    unpacked,_ = torch.nn.utils.rnn.pad_packed_sequence(states)
+    print('state size')
+    print(state.size())
+    packed = pack_padded_sequence(state, lengths, enforce_sorted=False)
+    if hidden_state is not None:
+      states, final_state = self.lstm(packed, hidden_state)
+    else:
+      states, final_state = self.lstm(packed)
 
-    print('Unpacked Size', unpacked.size())
+    unpacked, lengths = pad_packed_sequence(states)
 
     final = self.linear(unpacked)
-    return self.final_act(final), final_state
+    return self.final_act(final), final_state, lengths
+
 
 
 def build_dense_regression(linear_dims, act, final_act=None):
@@ -576,11 +591,13 @@ def build_dense_regression(linear_dims, act, final_act=None):
   activations = [act() for layer in range(len(linear_layers) - 1)]
   if final_act is not None:
     activations.append(final_act)
+  else:
+    activations.append(nn.Identity())
   return nn.Sequential(*[val for tup in zip(*[linear_layers, activations]) for val in tup]
 )
 
 class CNNCritic(nn.Module):
-  def __init__(self, conv_dims, fc_dims, input_size=(1, 1,224,224), conv_act=nn.ReLU, fc_act=nn.ReLU):
+  def __init__(self, conv_dims, fc_dims, input_size=(1, 1,84,84), conv_act=nn.ReLU, fc_act=nn.ReLU):
     super(CNNCritic, self).__init__()
     self.conv_mod = build_conv_feature_extractor(conv_dims, conv_act)
 
@@ -594,22 +611,32 @@ class CNNCritic(nn.Module):
     fc_dims.insert(0, (feature_size, first_output))
 
     self.fc = build_dense_regression(fc_dims, fc_act)
+    print('regressor extract critic', self.fc)
+    self.fc_dims = feature_size
 
-  def forward(self, map, pos, action):
-    batch_size = x.size()[0]
-    map_feats = self.conv_mod(map)
-    all_feats = torch.hstack([map_feats, pos, action])
+  def forward(self, map, positions, action):
+    print('sizes')
+    print(map.size())
+    print(positions.size())
+    batch_size = map.size()[1]
+    seq_length =  map.size()[0]
+    conv = self.conv_mod(map.view((seq_length * batch_size, 1, 84, 84)))
+    print('COnv out', conv.size())
+
+    flat = conv.view(-1).view(seq_length, batch_size, self.fc_dims - 4)
+    print('sizes')
+    print(flat.size())
+    print(positions.size())
+    total_feats = torch.cat((flat, positions, action), 2)
     return self.fc(total_feats)
 
 
-# TODO: A function to soft update target networks
 def weighSync(target_model, source_model, tau=0.001):
   for (target, src) in zip(target_model.parameters(), source_model.parameters()):
     target.data = (1-tau) * target.data + tau * src.data 
 
-# TODO: Write the ReplayBuffer
 class Replay():
-    def __init__(self, buffer_size, init_episodes, max_episode_length, state_dim, action_dim, env):
+    def __init__(self, buffer_size, init_episodes, max_episode_length, sequence_length, action_dim, env, env_width, env_height):
         """
         A function to initialize the replay buffer.
 
@@ -618,67 +645,103 @@ class Replay():
         param: action_dim : Size of the action space
         param: env : gym environment object
         """
-        self.buffer = [{}] * init_sequences
+        self.buffer = [{}] * buffer_size
+        self.noise = MultivariateNormal(torch.zeros(2), torch.diag(torch.tensor([0.05, 0.05])))
         self.sequence_length = sequence_length
         self.max_episode_length = max_episode_length
         self.env = env
         state = self.env.reset()
+        self.env_width = env_width
+        self.env_height = env_height
         self.buffer_idx = 0
         self.total_steps = 0
         last_state = env.reset()
-        while self.buffer_idx < self.init_sequences:
-          episode = self.generate_episode()
-          sequences = self.episode_to_sequences(episode)
-        init_policy = lambda map, pos: np.random.uniform(0, 1, (2,))
-        for i in range(init_epsiodes):
-          action = np.random.uniform(-1, 1, (2,))
-          state, reward, _, _ = env.step(action)
-          self.buffer[self.buffer_idx, :] = np.hstack([state, last_state, action, reward])
-          self.total_steps = min(self.total_steps + 1, len(self.buffer))
-          self.buffer_idx = (self.buffer_idx + 1) % len(self.buffer)
-          last_state = state
+        init_policy = lambda map, pos, lengths: (torch.from_numpy(np.random.uniform(0.1, 0.9, (2,))).unsqueeze(0).unsqueeze(1), None, [1])
+        self.full_buffer = False
+        for episode in range(init_episodes):
+          episode = self.generate_episode(init_policy)
 
     def generate_episode(self, policy):
-      robot = Robot(0, True, True, 'DRL_robot_exploration/DungeonMaps',action_space,reward_func, False)
-      episode = []
-      last_map = torch.zeros((224, 224))
-      last_position = torch.zeros((2, 1))
-      terminal = False
+        episode = []
+        map, position = self.env.reset()
+        position = position.astype(np.float64)
+        map = resize(map, (84, 84))
+        map = ((map - 127) / 255) * 2
+        print('position', position)
 
-      for i in range(self.max_episode_length):
-        action = policy(last_map, last_position)
-        (map, loc), reward, terminal, complete, new_loc, collision, all_map = robot.step(action.from_numpy())
-        map_tensor = torch.tensor(map).float()
-        position_tensor = torch.tensor(loc).float()
+        position[0] = position[0]/ 640.0
+        position[1] = position[1] / 480.0
+        last_map = torch.from_numpy(map).float()
+        last_position = torch.from_numpy(position).float()
+        print('start position')
+        print(last_position)
+        terminal = False
+
+        total_reward = 0
+        last_state = None
+        for i in range(self.max_episode_length):
+        if last_state is None:
+            action, last_state, lengths = policy(last_map.unsqueeze(0).unsqueeze(0).to(device='cuda'), last_position.unsqueeze(0).unsqueeze(0).to(device='cuda'), [1])
+        else:
+            print('map size')
+            print(last_map.size())
+            action, last_state, lengths = policy(last_map.unsqueeze(0).unsqueeze(0).to(device='cuda'), last_position.unsqueeze(0).unsqueeze(0).to(device='cuda'), [1], last_state)
+      
+      
+        action = action.cpu().squeeze(0).squeeze(1) + torch.clamp(self.noise.sample(), -0.25, 0.25) #TD3 requires noise to be clamped
+
+        action_np = action.detach().numpy().flatten()
+        print('action_np')
+        print(action_np)
+        action_np[0] = np.clip(action_np[0], 0, 1)
+        action_np[1] = np.clip(action_np[1], 0, 1)
+
+    
+
+        (map, loc), reward, terminal, complete, new_loc, collision, all_map = self.env.step(action_np)
+        map = resize(map, (84, 84))
+        map = ((map - 127) / 255) * 2
+        print('unnormalized loc', loc)
+        loc = loc.astype(np.float64)
+        loc[0] = loc[0] / 640.0
+        loc[1] = loc[1] / 480.0
+
+        map_tensor = torch.from_numpy(map).float()
+        position_tensor = torch.from_numpy(loc).float()
+        print('single position', position_tensor.size())
+        print(position_tensor)
         reward_tensor = torch.tensor(reward).float()
-        episode.append({'map': torch.tensor(map).float(), 'position': loc, 'reward': reward, 'action': action})
+        episode.append({'map': map_tensor, 'position': position_tensor, 'reward': reward_tensor, 'action': action})
         last_map = map_tensor
         last_position = position_tensor
+        total_reward += reward
         if terminal:
-          break
+            break
+        print('episode', episode)
+        sequences = self.episode_to_sequences(episode)
+        for sequence in sequences:
+            self.buffer[self.buffer_idx] = sequence
+            self.buffer_idx = (self.buffer_idx + 1) % len(self.buffer)
+            if self.buffer_idx == 0:
+                full_buffer = True
 
-
-      self.buffer[self.buffer_idx] = {'episode':episode, 'length':length}
-      self.buffer_idx = (self.buffer_idx + 1) % len(self.buffer)
-      self.total_steps = min(self.total_steps + 1, len(self.buffer))
-
-
-    '''
+      return reward
+    
     def episode_to_sequences(self, episode):
-      window = []
-      sequences = []
-      for i in range(self.sequence_length, len(episode)):
-        if len(window) < self.sequence_length:
-          window = deepcopy(window)
-        else:
-          window = window[1:]
-        map_tensor = torch.cat([torch.unsqueeze(data['map'], 0) for data in window])
-        position_tensor = torch.cat([torch.unsqueeze(data['position'], 0) for data in window])
-        reward_tensor = torch.cat([torch.unsqueeze(data['position'], 0) for data in window])
-        window.append(episode[i])
-        sequences.append({'maps':torch.vstack())
+        window = []
+        sequences = []
+        for i in range(0, len(episode)):
+            if len(window) >= self.sequence_length + 1:
+                window = window[1:]
+            window.append(episode[i])
+            map_tensor = torch.cat([torch.unsqueeze(data['map'], 0) for data in window], 0)
+            position_tensor = torch.cat([torch.unsqueeze(data['position'], 0) for data in window], 0)
+            print('position tensor', position_tensor)
+            reward_tensor = torch.cat([torch.unsqueeze(data['reward'], 0) for data in window], 0)
+            action_tensor = torch.cat([torch.unsqueeze(data['action'], 0) for data in window], 0)
+            sequences.append({'maps':map_tensor, 'positions': position_tensor, 'rewards': reward_tensor, 'actions':action_tensor, 'len':len(window)})
       return sequences
-    '''
+    
 
     #TODO: Complete the function
     def buffer_sample(self, N):
@@ -686,54 +749,64 @@ class Replay():
         A function to sample N points from the buffer
         param: N : Number of samples to obtain from the buffer
         """
-        if N > self.total_steps:
-          return torch.from_numpy(self.buffer[:self.total_steps, :]).float().to(device='cuda')
+        print('buffer idx', self.buffer_idx)
+        if self.full_buffer:
+            samples = random.sample(self.buffer, N)
+        else:
+            samples = random.sample(self.buffer[:self.buffer_idx], N)
 
-        samples = random.sample(self.buffer, N)
-        return samples
+        return self.batchify(samples)
 
     def batchify(self, samples):
       
-      map_sequences = []
-      position_sequences = []
-      reward_sequences = []
+        map_sequences = []
+        position_sequences = []
+        reward_sequences = []
+        action_sequences = []
+        seq_lens = []
 
-      for sample in samples:
-        episode = sample['episode']
-        maps = []
-        positions = []
-        rewards = []
-        for step in episode:
-          maps.append(torch.unsqueeze(step['map'], 0))
-          positions.append(torch.unsqueeze(step['position'], 0))
-          rewards.append(torch.unsqueeze(step['reward'], 0))
+        for sequence in samples:
+            print('sequence')
+            print(sequence)
 
-        maps_sequence = torch.cat(maps, 0)
-        positions_sequence = torch.cat(positions, 0)
-        rewards_sequence = torch.cat(rewards, 0)
+            map_sequences.append(sequence['maps'])
+            print('batchify')
+            print('positions', sequence['positions'].size())
+            print('rewards', sequence['rewards'].size())
+            print('actions', sequence['actions'].size())
+            print('maps', sequence['maps'].size())
+            position_sequences.append(sequence['positions'])
+            reward_sequences.append(sequence['rewards'])
+            action_sequences.append(sequence['actions'])
+            seq_lens.append(sequence['len'])
 
-        map_sequences.append(maps_sequence)
-        position_sequences.append(positions_sequence)
-        reward_sequences.append(rewards_sequence)
+        map_pad = pad_sequence(map_sequences).to(device='cuda').float()
+        pos_pad = pad_sequence(position_sequences).to(device='cuda').float()
+        reward_pad = pad_sequence(reward_sequences).to(device='cuda').float()
+        action_pad = pad_sequence(action_sequences).to(device='cuda').float()
+        seqs = seq_lens
 
-        lengths.append(sample['length'])
+        return map_pad, pos_pad, reward_pad, action_pad, seqs
 
-      return nn.utils.rnn.pad_sequence(map_sequences), nn.utils.rnn.pad_sequence(position_sequences), nn.utils.rnn.pad_sequence(reward_sequences)
 
 
 class TD3():
     def __init__(
             self,
-            robot,
-            action_dim,
+            env,
+            conv_dims,
+            lstm_dim,
+            linear_dims,
+            sequence_length,
             state_dim,
+            action_dim,
             critic_lr=3e-4,
             actor_lr=3e-4,
             gamma=0.99,
-            noise=0.1,
             batch_size=100,
             buffer_size=10000,
-            init_episodes=1000
+            init_episodes=1000,
+            max_episode_length=300
 
     ):
         """
@@ -747,30 +820,28 @@ class TD3():
         """
         self.gamma = gamma
         self.batch_size = batch_size
-        self.robot = robot
+        self.sequence_length = sequence_length
+        reward_func = FrontierRewardFunction(1 / 80)
+        action_space = PolarActionSpace(30)
+        self.env = Robot(0, True, False, 'DRL_robot_exploration/DungeonMaps', action_space, reward_func, False)
+        # self.env = env
 
-        self.actor = RNNActor(conv_dims, lstm_hidden, train_length).to(device=device)
-        self.actor_target = RNNActor(conv_dims, lstm_hidden, train_length).to(device=device)
-        for t_param, param in zip(self.actor_target.parameters(), self.actor.parameters()): #Initialize both networks at same weights
-            t_param.data.copy_(param.data)
+        self.actor = RNNActor(conv_dims, lstm_dim, sequence_length).to(device=device) #TODO conv_dims, lstm_hidden, train_length
+        self.actor_target = copy.deepcopy(self.actor)
 
-        self.critic1 = CNNCritic(conv_dims, fc_dims).to(device=device)
-        self.critic1_target = CNNCritic(conv_dims, fc_dims).to(device=device)
-        for t_param, param in zip(self.critic1_target.parameters(), self.critic1.parameters()): #Initialize both networks at same weights
-            t_param.data.copy_(param.data)
+        self.critic1 = CNNCritic(conv_dims, linear_dims).to(device=device) #TODO conv_dims, fc_dims
+        self.critic1_target = copy.deepcopy(self.critic1).to(device=device)
 
-        self.critic2 = CNNCritic(conv_dims, fc_dims).to(device=device)
-        self.critic2_target = CNNCritic(conv_dims, fc_dims).to(device=device)
-        for t_param, param in zip(self.critic2_target.parameters(), self.critic2.parameters()): #Initialize both networks at same weights
-            t_param.data.copy_(param.data)
+        self.critic2 = CNNCritic(conv_dims, linear_dims).to(device=device)
+        self.critic2_target = copy.deepcopy(self.critic2).to(device=device)
 
         self.optimizer_actor = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.optimizer_critic1 = optim.Adam(self.critic1.parameters(), lr=critic_lr)
         self.optimizer_critic2 = optim.Adam(self.critic2.parameters(), lr=critic_lr)
-        self.ReplayBuffer = Replay(buffer_size, init_episodes, max_episode_length, state_dim, action_dim, env) #TODO change env to robot?
+        self.replay = Replay(buffer_size, init_episodes, max_episode_length, state_dim, action_dim, env) #TODO change env to robot?
 
         mean = torch.zeros(action_dim)
-        cov = noise * torch.eye(action_dim)
+        cov = 0.1 * torch.eye(action_dim)
         self.noise = torch.distributions.multivariate_normal.MultivariateNormal(mean, cov)
 
     def update_target_networks(self):
@@ -785,66 +856,103 @@ class TD3():
         """
         A function to update the function just once
         """
-        b_state, b_action, b_reward, b_next_state, _ = self.ReplayBuffer.buffer_sample(self.batch_size)
-        b_state = torch.Tensor(b_state).to(device)
-        b_action = torch.Tensor(b_action).to(device)
-        b_reward = torch.Tensor(b_reward).reshape(self.batch_size,1).to(device)
-        b_next_state = torch.Tensor(b_next_state).to(device)
-        # b_done = torch.Tensor(b_done).reshape(self.batch_size,1).to(device)
+        self.optimizer_critic1.zero_grad() 
+        self.optimizer_critic2.zero_grad()
 
-        target_action = self.actor_target(b_next_state) + torch.clamp(self.noise.sample(), -0.25, 0.25).to(device) 
-        target_q1 = self.critic1_target(b_next_state, target_action)
-        target_q2 = self.critic2_target(b_next_state, target_action)
-        y = b_reward + self.gamma * torch.minimum(target_q1, target_q2)
+        reward = self.replay.generate_episode(self.actor) #Generate episode with current actor and store into replay buffer
+        maps, positions, rewards, actions, lengths = self.replay.buffer_sample(self.batch_size)
+        print('actions size',actions.size())
+        actions = actions.squeeze(2)
 
-        q1 = self.critic1(b_state, b_action)
-        critic1_loss = F.mse_loss(y, q1).mean()
-        self.optimizer_critic1.zero_grad()
-        critic1_loss.backward(retain_graph=True)
+        with torch.no_grad(): #Save gpu vram
+            target_action, _, _ = self.actor_target(maps, positions, lengths)
+            target_action = target_action.squeeze(2)
+            #Should be (seq_len, batch_size, 2)
+            #Should be (seq_len, batch_size, 1)
+            print('target action', target_action.size())
+            crit1 = self.critic1_target(maps, positions, target_action)
+            crit2 = self.critic2_target(maps, positions, target_action)
+            print('crit', crit1.size())
+            print('rewards', rewards.size())
+        ys = rewards + self.gamma * torch.minimum(crit1.squeeze(2), crit2.squeeze(2)) #Use the minimum critic values
+
+        print('updating')
+        print('inputs')
+        print(y_i)
+        print(maps)
+        print(positions)
+        print(actions)
+        print(lengths)
+
+        qs1 = self.critic1(maps, positions, actions).squeeze(2)
+        #should be (seq_len, batch, 1)
+        print('qs1', qs1.size())
+        #should be (seq_len, batch, 1)
+        print('y_i', y_i.size(), 'qs1', qs1.size())
+        critic1_loss = ((y_i - qs1)**2).sum() / (self.sequence_length * self.batch_size)
+        critic1_loss.backward()
         self.optimizer_critic1.step()
 
-        q2 = self.critic2(b_state, b_action)
-        critic2_loss = F.mse_loss(y, q2).mean()
-        self.optimizer_critic2.zero_grad()
+        qs2 = self.critic2(maps, positions, actions).squeeze(2)
+        #should be (seq_len, batch, 1)
+        print('qs2', qs2.size())
+        #should be (seq_len, batch, 1)
+        print('y_i', y_i.size(), 'qs2', qs2.size())
+        critic2_loss = ((y_i - qs2)**2).sum() / (self.sequence_length * self.batch_size)
         critic2_loss.backward()
         self.optimizer_critic2.step()
 
         if iter % 2 == 0: #Only update actor and target networks every two updates
-            q_policy = self.critic1(b_state, self.actor(b_state))
-            actor_loss = -q_policy.mean()
-
             self.optimizer_actor.zero_grad()
-            actor_loss.backward()
+            new_act, _, _ = self.actor(maps, positions, lengths)
+            print('new_act', new_act.size())
+            qs = self.critic1(maps, positions, new_act)
+            actor_loss = qs.sum() / (self.sequence_length * self.batch_size)
+            (-actor_loss).backward()
             self.optimizer_actor.step()
+            actor_loss.backward()
 
             self.update_target_networks()
+
+        if i%100==0:
+            print('reward', reward)
 
     def train(self, num_steps):
         """
         Train the policy for the given number of iterations
         :param num_steps:The number of steps to train the policy for
         """
-        
-        op_map, robot_position = self.robot.reset()
-        terminal = False
-        rewardHist = []
-        rewardEp = []
-        for i in range(num_steps):
-            if i%2500==0:
-                print(i)
-            if terminal:
-                op_map, robot_position = self.robot.reset()
-                terminal = False
-                rewardHist.append(sum(rewardEp))
-                rewardEp = []
-            
-            action = self.actor(torch.Tensor(state).to(device)) + self.noise.sample().to(device) 
-            (op_map, robot_position), reward, terminal, complete, new_location, collision_index, all_map = self.robot.step(action)
-            rewardEp.append(reward)
-            # self.env.render()
-            self.ReplayBuffer.buffer_add(state, action.cpu().detach().numpy(), reward, next_state, done)
+
+        i = 0
+        start = time.time()
+        while i < num_steps:
+            i += 1
             self.update_network(i)
-            state = next_state
-        plt.plot(rewardHist)
-        plt.title("TD3 Episodic Reward over Training Loop")
-        plt.show()
+            if i % 100 == 0:
+                print('step {}'.format(i))
+                print('since start {}'.format(time.time() - start))
+                
+
+        # op_map, robot_position = self.robot.reset()
+        # terminal = False
+        # rewardHist = []
+        # rewardEp = []
+        # for i in range(num_steps):
+        #     if i%2500==0:
+        #         print(i)
+        #     if terminal:
+        #         op_map, robot_position = self.robot.reset()
+        #         terminal = False
+        #         rewardHist.append(sum(rewardEp))
+        #         rewardEp = []
+            
+        #     action = self.actor(torch.Tensor(state).to(device)) + self.noise.sample().to(device) 
+        #     (op_map, robot_position), reward, terminal, complete, new_location, collision_index, all_map = self.robot.step(action)
+        #     rewardEp.append(reward)
+        #     # self.env.render()
+        #     self.ReplayBuffer.buffer_add(state, action.cpu().detach().numpy(), reward, next_state, done)
+        #     self.update_network(i)
+        #     state = next_state
+        # plt.plot(rewardHist)
+        # plt.title("TD3 Episodic Reward over Training Loop")
+        # plt.show()
