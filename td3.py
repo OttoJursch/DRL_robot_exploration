@@ -680,12 +680,12 @@ class Replay():
         total_reward = 0
         last_state = None
         for i in range(self.max_episode_length):
-        if last_state is None:
-            action, last_state, lengths = policy(last_map.unsqueeze(0).unsqueeze(0).to(device='cuda'), last_position.unsqueeze(0).unsqueeze(0).to(device='cuda'), [1])
-        else:
-            print('map size')
-            print(last_map.size())
-            action, last_state, lengths = policy(last_map.unsqueeze(0).unsqueeze(0).to(device='cuda'), last_position.unsqueeze(0).unsqueeze(0).to(device='cuda'), [1], last_state)
+            if last_state is None:
+                action, last_state, lengths = policy(last_map.unsqueeze(0).unsqueeze(0).to(device='cuda'), last_position.unsqueeze(0).unsqueeze(0).to(device='cuda'), [1])
+            else:
+                print('map size')
+                print(last_map.size())
+                action, last_state, lengths = policy(last_map.unsqueeze(0).unsqueeze(0).to(device='cuda'), last_position.unsqueeze(0).unsqueeze(0).to(device='cuda'), [1], last_state)
       
       
         action = action.cpu().squeeze(0).squeeze(1) + torch.clamp(self.noise.sample(), -0.25, 0.25) #TD3 requires noise to be clamped
@@ -890,7 +890,7 @@ class TD3():
         #should be (seq_len, batch, 1)
         print('y_i', y_i.size(), 'qs1', qs1.size())
         critic1_loss = ((y_i - qs1)**2).sum() / (self.sequence_length * self.batch_size)
-        critic1_loss.backward()
+        critic1_loss.backward(retain_graph=True)
         self.optimizer_critic1.step()
 
         qs2 = self.critic2(maps, positions, actions).squeeze(2)
