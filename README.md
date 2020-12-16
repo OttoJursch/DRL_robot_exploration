@@ -5,10 +5,20 @@ TD3_singleenv.ipynb contains the code to generate the results for the single env
 
 TD3_multienv.ipynb contains the code to generate the results for the multi/random environment section of the paper/slides, along with experimentation of an alternate frontier based reward function.
 
+DDPG.ipynb contains an implementation of standard Deep Determistic Policy
+Gradient
+
+rnn.ipynb contains an implementation of Recurrent Deterministic Policy Gradient 
+
+evaluate_model.ipynb contains the code to count the number of calls to the A*
+rescuer needed to get a model working
+
 If running locally, make sure to run the cell with laptop=True, and laptop=False commented out.
 If running on Colab, run the cell with laptop=False, and laptop=True commented out.
 A significant chunk of development was done in google colab. Paths work differently in colab than when run on a local machine, so this is used to differentiate between the
 two run environments.
+
+The remainder of this README is from the authors of the original project
 
 
 # Self-Learning Exploration and Mapping for Mobile Robots via Deep Reinforcement Learning
