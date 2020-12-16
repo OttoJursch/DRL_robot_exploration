@@ -1,10 +1,12 @@
 Our project is built off of the "Self-Learning Exploration and Mapping for Mobile Robots via Deep Reinforcement Learning" paper, and is forked from their github.
-Their section of the README.md is kept underneath for instructions on what to install, and how to run.
+Their section of the README.md is kept underneath for instructions on what dependencies to install and build.
 
 TD3_singleenv.ipynb contains the code to generate the results for the single environment section of the paper/slides. 
 TD3_multienv.ipynb contains the code to generate the results for the multi/random environment section of the paper/slides, along with experimentation of an alternate frontier based reward function.
-Make sure to run the cell with laptop=True, with laptop=False commented out.
-A significant chunk of development was done in google colab. Paths work differently in colab than when run on a local machine, so this is used to differentiate.
+If running locally, make sure to run the cell with laptop=True, and laptop=False commented out.
+If running on Colab, run the cell with laptop=False, and laptop=True commented out.
+A significant chunk of development was done in google colab. Paths work differently in colab than when run on a local machine, so this is used to differentiate between the
+two run environments.
 
 
 # Self-Learning Exploration and Mapping for Mobile Robots via Deep Reinforcement Learning
