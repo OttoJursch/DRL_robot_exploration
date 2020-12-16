@@ -2,7 +2,9 @@ Our project is built off of the "Self-Learning Exploration and Mapping for Mobil
 Their section of the README.md is kept underneath for instructions on what dependencies to install and build.
 
 TD3_singleenv.ipynb contains the code to generate the results for the single environment section of the paper/slides. 
+
 TD3_multienv.ipynb contains the code to generate the results for the multi/random environment section of the paper/slides, along with experimentation of an alternate frontier based reward function.
+
 If running locally, make sure to run the cell with laptop=True, and laptop=False commented out.
 If running on Colab, run the cell with laptop=False, and laptop=True commented out.
 A significant chunk of development was done in google colab. Paths work differently in colab than when run on a local machine, so this is used to differentiate between the
