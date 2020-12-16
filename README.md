@@ -1,3 +1,12 @@
+Our project is built off of the "Self-Learning Exploration and Mapping for Mobile Robots via Deep Reinforcement Learning" paper, and is forked from their github.
+Their section of the README.md is kept underneath for instructions on what to install, and how to run.
+
+TD3_singleenv.ipynb contains the code to generate the results for the single environment section of the paper/slides. 
+TD3_multienv.ipynb contains the code to generate the results for the multi/random environment section of the paper/slides, along with experimentation of an alternate frontier based reward function.
+Make sure to run the cell with laptop=True, with laptop=False commented out.
+A significant chunk of development was done in google colab. Paths work differently in colab than when run on a local machine, so this is used to differentiate.
+
+
 # Self-Learning Exploration and Mapping for Mobile Robots via Deep Reinforcement Learning
 This repository contains code for robot exploration with Deep Reinforcement Learning (DRL). The agent utilizes the local structure of the environment to predict robot’s optimal sensing action. A demonstration video can be found [here](https://www.youtube.com/watch?v=2gNF6efv12s).
 
